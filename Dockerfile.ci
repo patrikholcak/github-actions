@@ -1,0 +1,7 @@
+arg NODE_VERSION=16-alpine
+
+# Create final image
+from node:$NODE_VERSION
+copy dist ./
+
+cmd ["node", "."]

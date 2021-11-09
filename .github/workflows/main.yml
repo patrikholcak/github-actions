@@ -1,0 +1,126 @@
+name: Build & Test
+on: [push]
+jobs:
+  preflight:
+    runs-on: ubuntu-20.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: "16.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+  fe_tests:
+    runs-on: ubuntu-20.04
+    needs: [preflight]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: "16.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build sources
+        run: npm run test
+
+  fe_build:
+    runs-on: ubuntu-20.04
+    needs: [preflight]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: "16.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build sources
+        run: npm run build
+
+      - name: Save built artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: dist
+          path: dist/
+
+  docker_build:
+    runs-on: ubuntu-20.04
+    needs: [fe_build]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Download js artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: dist
+          path: dist
+
+      - name: Set environment variables
+        # //\//- replaces / with -
+        run: |
+          export GIT_BRANCH=${GITHUB_REF#refs/heads/}
+          echo "DOCKER_TAG=${GIT_BRANCH//\//-}" >> $GITHUB_ENV
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker build
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          context: .
+          file: Dockerfile.ci
+          tags: ghcr.io/patrikholcak/github-docker-actions:${{ env.DOCKER_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  docker_test:
+    runs-on: ubuntu-20.04
+    needs: [docker_build]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set environment variables
+        # //\//- replaces / with -
+        run: |
+          export GIT_BRANCH=${GITHUB_REF#refs/heads/}
+          echo "DOCKER_TAG=${GIT_BRANCH//\//-}" >> $GITHUB_ENV
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull docker image
+        run: docker pull ghcr.io/patrikholcak/github-docker-actions:${{ env.DOCKER_TAG }}
+
+      - name: Run image
+        run: docker run --name app ghcr.io/patrikholcak/github-docker-actions:${{ env.DOCKER_TAG }}
